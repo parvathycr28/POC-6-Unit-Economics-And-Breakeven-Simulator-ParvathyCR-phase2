@@ -936,9 +936,14 @@ frontend/
   repomix-output.xml
   tailwind.config.ts
   tsconfig.json
+.dockerignore
+.env.example
 .env.local
 .gitignore
 architecture
+docker-compose.yml
+Dockerfile.backend
+Dockerfile.frontend
 README.md
 repomix.config.json
 UAT_CHECKLIST.md
@@ -947,6 +952,122 @@ VAR_REPORT.md
 ================================================================
 Files
 ================================================================
+
+================
+File: .dockerignore
+================
+.git
+.gitignore
+
+.env
+.env.*
+!.env.example
+
+frontend/node_modules
+frontend/.next
+
+backend/venv
+backend/.venv
+backend/Lib
+backend/Scripts
+backend/__pycache__
+backend/**/*.pyc
+
+**/*.log
+
+repomix-output.txt
+repomix-output.xml
+
+.DS_Store
+Thumbs.db
+
+================
+File: .env.example
+================
+FRED_API_KEY=
+FRED_SERIES=CPIAUCSL
+WORLD_BANK_COUNTRY=IND
+
+================
+File: docker-compose.yml
+================
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: infocreon-unit-economics-backend
+    env_file:
+      - .env
+    ports:
+      - "8002:8001"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: infocreon-unit-economics-frontend
+    ports:
+      - "3001:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+================
+File: Dockerfile.backend
+================
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY backend/requirements.txt ./backend/requirements.txt
+
+RUN pip install --no-cache-dir -r ./backend/requirements.txt
+
+COPY backend/app ./backend/app
+COPY data ./data
+
+WORKDIR /app/backend
+
+EXPOSE 8001
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]
+
+================
+File: Dockerfile.frontend
+================
+FROM node:20-alpine AS deps
+
+WORKDIR /app
+
+COPY frontend/package.json frontend/package-lock.json ./
+
+RUN npm ci
+
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY frontend/ ./
+
+RUN npm run build
+
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/package-lock.json ./package-lock.json
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/node_modules ./node_modules
+
+EXPOSE 3000
+
+CMD ["npm", "run", "start"]
 
 ================
 File: backend/app/api/fred/route.ts
@@ -1207,10 +1328,7 @@ BASE_DIR = Path(
     __file__
 ).resolve().parents[2]
 
-DATA_DIR = (
-    BASE_DIR.parent /
-    "data"
-)
+DATA_DIR = BASE_DIR / "data"
 
 
 def read_products() -> pd.DataFrame:
